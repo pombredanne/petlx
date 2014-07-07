@@ -6,7 +6,7 @@ arrays.
 
 
 import sys
-from petl.util import columns, iterpeek, RowContainer
+from petl.util import columns, iterpeek, RowContainer, ValuesContainer
 from petlx.util import UnsatisfiedDependency
 
 
@@ -23,14 +23,13 @@ def guessdtype(table):
     except ImportError as e:
         raise UnsatisfiedDependency(e, dep_message)
     else:
-        # get numpy to infer dtypes for each field individually
-        fields, table = iterpeek(table, 1)
-        cols = columns(table)
-        dtype = []
-        for f in fields:
-            a = np.array(cols[f]) # load into 1D array to get numpy to infer a dtype for the column
-            dtype.append((f, a.dtype))
-        return np.dtype(dtype)
+        # get numpy to infer dtype
+        it = iter(table)
+        fields = it.next()
+        rows = tuple(it)
+        dtype = np.rec.array(rows).dtype
+        dtype.names = fields
+        return dtype
 
 
 def toarray(table, dtype=None, count=-1, sample=1000):
@@ -108,7 +107,8 @@ def toarray(table, dtype=None, count=-1, sample=1000):
             typestrings = [s.strip() for s in dtype.split(',')]
             dtype = [(f, t) for f, t in zip(fields, typestrings)]
             
-        elif isinstance(dtype, dict) and ('names' not in dtype or 'formats' not in dtype):
+        elif (isinstance(dtype, dict)
+              and ('names' not in dtype or 'formats' not in dtype)):
             # allow for partial specification of dtype
             cols = columns(peek)
             newdtype = {'names': [], 'formats': []}
@@ -128,8 +128,9 @@ def toarray(table, dtype=None, count=-1, sample=1000):
             
         else:
             pass # leave dtype as-is
-                         
-        it = (tuple(row) for row in it) # numpy is fussy about having tuples, need to make sure
+
+        # numpy is fussy about having tuples, need to make sure
+        it = (tuple(row) for row in it)
         sa = np.fromiter(it, dtype=dtype, count=count)
 
         return sa
@@ -170,7 +171,28 @@ class ArrayContainer(RowContainer):
         yield tuple(self.a.dtype.names)
         for row in self.a:
             yield tuple(row)
-            
+
+
+def valuestoarray(vals, dtype=None, count=-1, sample=1000):
+
+    try:
+        import numpy as np
+    except ImportError as e:
+        raise UnsatisfiedDependency(e, dep_message)
+    else:
+
+        it = iter(vals)
+
+        if dtype is None:
+            peek, it = iterpeek(it, sample)
+            dtype = np.array(peek).dtype
+
+        a = np.fromiter(it, dtype=dtype, count=count)
+        return a
+
+
+ValuesContainer.array = valuestoarray
+
 
 from petlx.integration import integrate
 integrate(sys.modules[__name__])
